@@ -91,49 +91,78 @@ class AuthController extends Controller
         return response()->json(['message' => 'User updated successfully!', 'data' => $user]);
     }
 
-   public function updateUserPhoto(Request $request)
-{
-    $request->validate([
-        'photo' => 'required|image|mimes:jpg,jpeg,png|max:5120',
-    ]);
+    public function updateUserPhoto(Request $request)
+    {
+        $request->validate(
+            [
+                'photo' => 'required|file|mimes:jpeg,jpg,png|max:5120',
+            ],
+            [
+                'photo.required' => 'Foto wajib diisi',
+                'photo.file'     => 'File yang diunggah harus berupa gambar.',
+                'photo.mimes'   => 'File gambar harus berformat jpeg, jpg, atau png.',
+                'photo.max'     => 'Ukuran file gambar tidak boleh lebih dari 5MB.',
+            ]
+        );
 
-    $user = $request->user();
-    $file = $request->file('photo');
+        $user = $request->user();
 
-    $timestamp = time();
-    $ext = $file->getClientOriginalExtension();
+        if (!$request->hasFile('photo')) {
+            return response()->json([
+                'message' => 'Tidak ada foto yang diunggah.',
+            ], 400);
+        }
 
-    $fileName = $timestamp . '.' . $ext;
-    $thumbName = 'thumb_' . $timestamp . '.' . $ext;
+        $file = $request->file('photo');
+        $extension = $file->getClientOriginalExtension();
+        $timestamp = time();
 
-    // ================= SIMPAN FOTO UTAMA =================
-    $path = $file->storeAs('photos', $fileName, 'public');
+        $fileName      = $timestamp . '.' . $extension;
+        $fileNameThumb = 'thumb_' . $timestamp . '.' . $extension;
 
-    // ================= SIMPAN THUMBNAIL =================
-    $thumbPath = storage_path('app/public/photos/thumbnail');
+        // Hapus foto lama
+        if ($user->photo) {
+            $oldPhotoPath = public_path('storage/photos/' . basename($user->photo));
+            if (File::exists($oldPhotoPath)) {
+                File::delete($oldPhotoPath);
+            }
+        }
 
-    if (!file_exists($thumbPath)) {
-        mkdir($thumbPath, 0755, true);
+        // Hapus thumbnail lama
+        if ($user->photo_thumb) {
+            $oldThumbPath = public_path(
+                'storage/photos/thumbnail/' . basename($user->photo_thumb)
+            );
+            if (File::exists($oldThumbPath)) {
+                File::delete($oldThumbPath);
+            }
+        }
+
+        // Simpan foto utama
+        $filePath = $file->storeAs('photos', $fileName, 'public');
+
+        // Pastikan folder thumbnail ada
+        $thumbnailPath = public_path('storage/photos/thumbnail/');
+        if (!File::exists($thumbnailPath)) {
+            File::makeDirectory($thumbnailPath, 0755, true);
+        }
+
+        // Buat thumbnail,kompres foto
+        $image = Image::read($file);
+        $image->scaleDown(width: 200);
+        $image->save($thumbnailPath . $fileNameThumb);
+
+        // Simpan ke database
+        $user->photo       = Storage::url($filePath);
+        $user->photo_thumb = '/storage/photos/thumbnail/' . $fileNameThumb;
+        $user->save();
+
+        return response()->json([
+            'message'     => 'Foto berhasil diperbarui!',
+            'foto'        => $user->photo,
+            'foto_thumb'  => $user->photo_thumb,
+        ], 200);
     }
-
-    $image = Image::make($file->getRealPath());
-    $image->resize(200, null, function ($constraint) {
-        $constraint->aspectRatio();
-    });
-    $image->save($thumbPath . '/' . $thumbName);
-
-    // ================= SIMPAN DB =================
-    $user->photo = Storage::url($path);
-    $user->photo_thumb = '/storage/photos/thumbnail/' . $thumbName;
-    $user->save();
-
-    return response()->json([
-        'message' => 'Foto berhasil diperbarui',
-        'photo' => $user->photo,
-        'thumb' => $user->photo_thumb
-    ]);
-}
-
     public function getSaldoUser(Request $request)
     {
         $user = $request->user();
