@@ -91,78 +91,55 @@ class AuthController extends Controller
         return response()->json(['message' => 'User updated successfully!', 'data' => $user]);
     }
 
-    public function updateUserPhoto(Request $request)
-    {
-        $request->validate(
-            [
-                'photo' => 'required|file|mimes:jpeg,jpg,png|max:5120',
-            ],
-            [
-                'photo.required' => 'Foto wajib diisi',
-                'photo.file'     => 'File yang diunggah harus berupa gambar.',
-                'photo.mimes'   => 'File gambar harus berformat jpeg, jpg, atau png.',
-                'photo.max'     => 'Ukuran file gambar tidak boleh lebih dari 5MB.',
-            ]
-        );
+   public function updateUserPhoto(Request $request)
+{
+    $request->validate([
+        'photo' => 'required|image|mimes:jpeg,jpg,png|max:5120',
+    ]);
 
-        $user = $request->user();
+    $user = $request->user();
+    $file = $request->file('photo');
 
-        if (!$request->hasFile('photo')) {
-            return response()->json([
-                'message' => 'Tidak ada foto yang diunggah.',
-            ], 400);
-        }
+    $timestamp = time();
+    $extension = $file->getClientOriginalExtension();
 
-        $file = $request->file('photo');
-        $extension = $file->getClientOriginalExtension();
-        $timestamp = time();
+    $fileName      = $timestamp . '.' . $extension;
+    $fileNameThumb = 'thumb_' . $timestamp . '.' . $extension;
 
-        $fileName      = $timestamp . '.' . $extension;
-        $fileNameThumb = 'thumb_' . $timestamp . '.' . $extension;
-
-        // Hapus foto lama
-        if ($user->photo) {
-            $oldPhotoPath = public_path('storage/photos/' . basename($user->photo));
-            if (File::exists($oldPhotoPath)) {
-                File::delete($oldPhotoPath);
-            }
-        }
-
-        // Hapus thumbnail lama
-        if ($user->photo_thumb) {
-            $oldThumbPath = public_path(
-                'storage/photos/thumbnail/' . basename($user->photo_thumb)
-            );
-            if (File::exists($oldThumbPath)) {
-                File::delete($oldThumbPath);
-            }
-        }
-
-        // Simpan foto utama
-        $filePath = $file->storeAs('photos', $fileName, 'public');
-
-        // Pastikan folder thumbnail ada
-        $thumbnailPath = public_path('storage/photos/thumbnail/');
-        if (!File::exists($thumbnailPath)) {
-            File::makeDirectory($thumbnailPath, 0755, true);
-        }
-
-        // Buat thumbnail,kompres foto
-        $image = Image::read($file);
-        $image->scaleDown(width: 200);
-        $image->save($thumbnailPath . $fileNameThumb);
-
-        // Simpan ke database
-        $user->photo       = Storage::url($filePath);
-        $user->photo_thumb = '/storage/photos/thumbnail/' . $fileNameThumb;
-        $user->save();
-
-        return response()->json([
-            'message'     => 'Foto berhasil diperbarui!',
-            'foto'        => $user->photo,
-            'foto_thumb'  => $user->photo_thumb,
-        ], 200);
+    // hapus foto lama (AMAN DI RAILWAY)
+    if ($user->photo) {
+        $oldPhoto = str_replace('/storage/', '', $user->photo);
+        Storage::disk('public')->delete($oldPhoto);
     }
+
+    if ($user->photo_thumb) {
+        $oldThumb = str_replace('/storage/', '', $user->photo_thumb);
+        Storage::disk('public')->delete($oldThumb);
+    }
+
+    // simpan foto utama
+    $photoPath = $file->storeAs('photos', $fileName, 'public');
+
+    // buat thumbnail di memory → simpan ke storage
+    $image = Image::read($file)->scaleDown(width: 200);
+    $thumbPath = 'photos/thumbnail/' . $fileNameThumb;
+
+    Storage::disk('public')->put(
+        $thumbPath,
+        (string) $image->encode()
+    );
+
+    // simpan path ke database
+    $user->photo       = '/storage/' . $photoPath;
+    $user->photo_thumb = '/storage/' . $thumbPath;
+    $user->save();
+
+    return response()->json([
+        'message' => 'Foto berhasil diperbarui!',
+        'foto' => $user->photo,
+        'foto_thumb' => $user->photo_thumb,
+    ], 200);
+}
     public function getSaldoUser(Request $request)
     {
         $user = $request->user();
