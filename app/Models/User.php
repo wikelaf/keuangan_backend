@@ -25,7 +25,7 @@ class User extends Authenticatable
         'ip_address',
         'user_agent',
         'photo',
-        'photo_tumb',
+        'photo_thumb',
         'fcmtoken'
     ];
 
