@@ -94,52 +94,46 @@ class AuthController extends Controller
    public function updateUserPhoto(Request $request)
 {
     $request->validate([
-        'photo' => 'required|image|mimes:jpeg,jpg,png|max:5120',
+        'photo' => 'required|image|mimes:jpg,jpeg,png|max:5120',
     ]);
 
     $user = $request->user();
     $file = $request->file('photo');
 
     $timestamp = time();
-    $extension = $file->getClientOriginalExtension();
+    $ext = $file->getClientOriginalExtension();
 
-    $fileName      = $timestamp . '.' . $extension;
-    $fileNameThumb = 'thumb_' . $timestamp . '.' . $extension;
+    $fileName = $timestamp . '.' . $ext;
+    $thumbName = 'thumb_' . $timestamp . '.' . $ext;
 
-    // hapus foto lama (AMAN DI RAILWAY)
-    if ($user->photo) {
-        $oldPhoto = str_replace('/storage/', '', $user->photo);
-        Storage::disk('public')->delete($oldPhoto);
+    // ================= SIMPAN FOTO UTAMA =================
+    $path = $file->storeAs('photos', $fileName, 'public');
+
+    // ================= SIMPAN THUMBNAIL =================
+    $thumbPath = storage_path('app/public/photos/thumbnail');
+
+    if (!file_exists($thumbPath)) {
+        mkdir($thumbPath, 0755, true);
     }
 
-    if ($user->photo_thumb) {
-        $oldThumb = str_replace('/storage/', '', $user->photo_thumb);
-        Storage::disk('public')->delete($oldThumb);
-    }
+    $image = Image::make($file->getRealPath());
+    $image->resize(200, null, function ($constraint) {
+        $constraint->aspectRatio();
+    });
+    $image->save($thumbPath . '/' . $thumbName);
 
-    // simpan foto utama
-    $photoPath = $file->storeAs('photos', $fileName, 'public');
-
-    // buat thumbnail di memory → simpan ke storage
-    $image = Image::read($file)->scaleDown(width: 200);
-    $thumbPath = 'photos/thumbnail/' . $fileNameThumb;
-
-    Storage::disk('public')->put(
-        $thumbPath,
-        (string) $image->encode()
-    );
-
-    // simpan path ke database
-    $user->photo       = '/storage/' . $photoPath;
-    $user->photo_thumb = '/storage/' . $thumbPath;
+    // ================= SIMPAN DB =================
+    $user->photo = Storage::url($path);
+    $user->photo_thumb = '/storage/photos/thumbnail/' . $thumbName;
     $user->save();
 
     return response()->json([
-        'message' => 'Foto berhasil diperbarui!',
-        'foto' => $user->photo,
-        'foto_thumb' => $user->photo_thumb,
-    ], 200);
+        'message' => 'Foto berhasil diperbarui',
+        'photo' => $user->photo,
+        'thumb' => $user->photo_thumb
+    ]);
 }
+
     public function getSaldoUser(Request $request)
     {
         $user = $request->user();
